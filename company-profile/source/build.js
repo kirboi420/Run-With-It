@@ -138,8 +138,7 @@ function card(slide, x, y, w, h, fill = C.card) {
     // big purple "25+" disc on the left
     const d = 3.7, cx = 0.95, cy = 1.75;
     s.addShape('ellipse', { x: cx - 0.28, y: cy - 0.28, w: d + 0.56, h: d + 0.56, fill: { type: 'none' }, line: { color: C.teal, width: 1 } });
-    s.addShape('ellipse', { x: cx, y: cy, w: d, h: d, fill: { color: C.purple }, line: { type: 'none' },
-      shadow: { type: 'outer', color: '000000', blur: 18, offset: 4, angle: 90, opacity: 0.4 } });
+    s.addShape('ellipse', { x: cx, y: cy, w: d, h: d, fill: { color: C.purple }, line: { type: 'none' } });
     s.addText('+25', { isTextBox: true, x: cx, y: cy + 0.75, w: d, h: 1.4, margin: 0, align: 'center', valign: 'middle', fontFace: F.xbold, fontSize: 80, color: C.white });
     txt(s, 'عاماً من الخبرة', { x: cx, y: cy + 2.15, w: d, h: 0.5, align: 'center', fontFace: F.bold, fontSize: 20, color: C.beige });
     s.addNotes('نبذة عن الشركة مع أبرز الأرقام: أكثر من 25 عاماً من الخبرة، 13 خدمة متخصصة، ولغتان.');
@@ -280,6 +279,22 @@ function card(slide, x, y, w, h, fill = C.card) {
     s.addImage({ data: imgData(A('image6_t.png')), x: 9.0, y: 2.6, w: 0.26, h: 0.26 / 0.3139 });
   }
 
-  await pres.writeFile({ fileName: OUT });
+  // pptxgenjs tags every run with East Asian (ea) and complex-script (cs) fonts
+  // using Chinese code pages (-122 GB2312, -120 Big5). Without the brand fonts
+  // installed, PowerPoint then falls back to a Chinese font and mobile apps draw
+  // the Arabic as empty squares. Rewrite each run to the original deck's
+  // Arabic-only setup: latin + cs with the Arabic code page (-78), no ea.
+  const JSZip = require('jszip');
+  const zip = await JSZip.loadAsync(await pres.write({ outputType: 'nodebuffer' }));
+  const fontRun = /<a:latin typeface="([^"]*)"[^>]*\/><a:ea typeface="[^"]*"[^>]*\/><a:cs typeface="[^"]*"[^>]*\/>/g;
+  for (const name of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) {
+    const xml = (await zip.file(name).async('string'))
+      .replace(fontRun, '<a:latin typeface="$1" pitchFamily="2" charset="-78"/><a:cs typeface="$1" pitchFamily="2" charset="-78"/>')
+      .replace(/ altLang="en-US"/g, '')
+      .replace(/ lang="en-US"/g, ' lang="ar-SA"');
+    if (/<a:ea |charset="-12[02]"/.test(xml)) throw new Error('unpatched East Asian font in ' + name);
+    zip.file(name, xml);
+  }
+  fs.writeFileSync(OUT, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
   console.log('wrote', OUT);
 })();
